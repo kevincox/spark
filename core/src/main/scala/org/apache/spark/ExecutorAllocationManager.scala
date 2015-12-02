@@ -91,6 +91,8 @@ private[spark] class ExecutorAllocationManager(
     Integer.MAX_VALUE)
   private val initialNumExecutors = conf.getInt("spark.dynamicAllocation.initialExecutors",
     minNumExecutors)
+  private val fairNumExecutors = conf.getInt("spark.dynamicAllocation.fairShareExecutors",
+    maxNumExecutors)
 
   // How long there must be backlogged tasks for before an addition is triggered (seconds)
   private val schedulerBacklogTimeoutS = conf.getTimeAsSeconds(
@@ -106,6 +108,10 @@ private[spark] class ExecutorAllocationManager(
 
   private val cachedExecutorIdleTimeoutS = conf.getTimeAsSeconds(
     "spark.dynamicAllocation.cachedExecutorIdleTimeout", s"${Integer.MAX_VALUE}s")
+
+  // How long to wait to request new executors after releasing due to cluster pressure.
+  private val regrowthTimeoutS = conf.getTimeAsSeconds(
+    "spark.dynamicAllocation.regrowthTimeout", s"60s")
 
   // During testing, the methods to actually kill and add executors are mocked out
   private val testing = conf.getBoolean("spark.dynamicAllocation.testing", false)
@@ -166,6 +172,7 @@ private[spark] class ExecutorAllocationManager(
   case object ExecutorRemoved extends Message
   case object Exit extends Message
   case object Ping extends Message
+  case class  PleaseRelease(amt :Int) extends Message
   case object Reset extends Message
   case object Timeout extends Message
   case object WorkAvailable extends Message
@@ -177,6 +184,7 @@ private[spark] class ExecutorAllocationManager(
   ExecutorRemoved
   Exit
   Ping
+  PleaseRelease
   Reset
   Timeout
   WorkAvailable
@@ -197,6 +205,7 @@ private[spark] class ExecutorAllocationManager(
       case ExecutorRemoved => onExecutorRemoved
       case Exit => onExit
       case Ping => onPing
+      case PleaseRelease(n) => onPleaseRelease(n)
       case Reset => onReset
       case Timeout => onTimeout
       case WorkAvailable => onWorkAvailable
@@ -232,6 +241,19 @@ private[spark] class ExecutorAllocationManager(
     def onWorkFinished(): State = {
       workAvailable = false
       new GrowableState
+    }
+    
+    def onPleaseRelease(amt :Int): State = {
+      var extra = math.max(0, numExecutorsTarget - fairNumExecutors)
+      
+      logInfo("########################################")
+      logInfo(s"Asked to release $amt executors, have $extra extra.")
+      logInfo("########################################")
+      
+      numExecutorsTarget -= math.min(amt, extra)
+      syncExecutorTarget()
+      
+      new ThrottleRegrowthState
     }
   }
 
@@ -299,6 +321,19 @@ private[spark] class ExecutorAllocationManager(
     }
   }
 
+  class ThrottleRegrowthState extends State(regrowthTimeoutS) {
+    override def handle(msg: Message): State = msg match {
+      case Timeout => {
+        if (workAvailable) {
+          new ThrottleRegrowthState
+        } else {
+          new GrowableState
+        }
+      }
+      case m => super.handle(m)
+    }
+  }
+
   /**
    * Verify that the settings specified through the config are valid.
    * If not, throw an appropriate exception.
@@ -309,6 +344,11 @@ private[spark] class ExecutorAllocationManager(
     }
     if (maxNumExecutors == 0) {
       throw new SparkException("spark.dynamicAllocation.maxExecutors cannot be 0!")
+    }
+    if (fairNumExecutors < minNumExecutors || fairNumExecutors > maxNumExecutors) {
+      throw new SparkException(s"spark.dynamicAllocation.fairShareExecutors ($fairNumExecutors) " +
+        s"must be between spark.dynamicAllocation.minExecutors ($minNumExecutors) and " +
+        s"spark.dynamicAllocation.maxExecutors ($maxNumExecutors)!")
     }
     if (minNumExecutors > maxNumExecutors) {
       throw new SparkException(s"spark.dynamicAllocation.minExecutors ($minNumExecutors) must " +
@@ -342,6 +382,16 @@ private[spark] class ExecutorAllocationManager(
   def start(): Unit = {
     listenerBus.addListener(listener)
     thread.start
+    
+    new Thread("demo-notification-thread") {
+      override def run(): Unit = {
+        Thread.sleep(30 * 1000)
+        println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
+        println("Sending pressure notification")
+        println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
+        inbox.put(PleaseRelease(4))
+      }
+    }.start
   }
 
   private def run(): Unit = {
@@ -413,7 +463,11 @@ private[spark] class ExecutorAllocationManager(
 
     val executorsString = if (delta == 1) "executor" else "executors"
     logInfo(s"Modifying number of executors from $prevNumExecutorsTarget to $numExecutorsTarget (delta $delta)")
-
+    
+    while (delta < 0 && !idleExecutors.isEmpty) {
+      removeIdleExecutor(idleExecutors.head._1)
+    }
+    
     prevNumExecutorsTarget = numExecutorsTarget
   }
 
