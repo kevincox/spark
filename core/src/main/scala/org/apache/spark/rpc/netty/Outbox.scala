@@ -17,6 +17,7 @@
 
 package org.apache.spark.rpc.netty
 
+import java.nio.ByteBuffer
 import java.util.concurrent.Callable
 import javax.annotation.concurrent.GuardedBy
 
@@ -24,7 +25,7 @@ import scala.util.control.NonFatal
 
 import org.apache.spark.{Logging, SparkException}
 import org.apache.spark.network.client.{RpcResponseCallback, TransportClient}
-import org.apache.spark.rpc.RpcAddress
+import org.apache.spark.rpc.{RpcAddress, RpcEnvStoppedException}
 
 private[netty] sealed trait OutboxMessage {
 
@@ -34,7 +35,7 @@ private[netty] sealed trait OutboxMessage {
 
 }
 
-private[netty] case class OneWayOutboxMessage(content: Array[Byte]) extends OutboxMessage
+private[netty] case class OneWayOutboxMessage(content: ByteBuffer) extends OutboxMessage
   with Logging {
 
   override def sendWith(client: TransportClient): Unit = {
@@ -42,15 +43,18 @@ private[netty] case class OneWayOutboxMessage(content: Array[Byte]) extends Outb
   }
 
   override def onFailure(e: Throwable): Unit = {
-    logWarning(s"Failed to send one-way RPC.", e)
+    e match {
+      case e1: RpcEnvStoppedException => logWarning(e1.getMessage)
+      case e1: Throwable => logWarning(s"Failed to send one-way RPC.", e1)
+    }
   }
 
 }
 
 private[netty] case class RpcOutboxMessage(
-    content: Array[Byte],
+    content: ByteBuffer,
     _onFailure: (Throwable) => Unit,
-    _onSuccess: (TransportClient, Array[Byte]) => Unit)
+    _onSuccess: (TransportClient, ByteBuffer) => Unit)
   extends OutboxMessage with RpcResponseCallback {
 
   private var client: TransportClient = _
@@ -70,7 +74,7 @@ private[netty] case class RpcOutboxMessage(
     _onFailure(e)
   }
 
-  override def onSuccess(response: Array[Byte]): Unit = {
+  override def onSuccess(response: ByteBuffer): Unit = {
     _onSuccess(client, response)
   }
 

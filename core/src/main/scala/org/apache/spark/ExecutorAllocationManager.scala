@@ -24,7 +24,6 @@ import scala.util.control.ControlThrowable
 
 import com.codahale.metrics.{Gauge, MetricRegistry}
 
-import org.apache.spark.scheduler._
 import org.apache.spark.metrics.source.Source
 import org.apache.spark.util.{ThreadUtils, Utils}
 
@@ -91,6 +90,8 @@ private[spark] class ExecutorAllocationManager(
     Integer.MAX_VALUE)
   private val fairNumExecutors = conf.getInt("spark.dynamicAllocation.fairShareExecutors",
     maxNumExecutors)
+  private val initialNumExecutors = conf.getInt("spark.dynamicAllocation.initialExecutors",
+    minNumExecutors)
 
   // How long there must be backlogged tasks for before an addition is triggered (seconds)
   private val schedulerBacklogTimeoutS = conf.getTimeAsSeconds(
@@ -127,8 +128,7 @@ private[spark] class ExecutorAllocationManager(
 
   // The desired number of executors at this moment in time. If all our executors were to die, this
   // is the number of executors we would immediately want from the cluster manager.
-  private var numExecutorsTarget =
-    conf.getInt("spark.dynamicAllocation.initialExecutors", minNumExecutors)
+  private var numExecutorsTarget = initialNumExecutors
   
   private var prevNumExecutorsTarget = 0
 
@@ -364,16 +364,6 @@ private[spark] class ExecutorAllocationManager(
   def start(): Unit = {
     listenerBus.addListener(listener)
     thread.start
-    
-    new Thread("demo-notification-thread") {
-      override def run(): Unit = {
-        Thread.sleep(30 * 1000)
-        println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
-        println("Sending pressure notification")
-        println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
-        inbox.put(PleaseRelease(4))
-      }
-    }.start
   }
   
   private def run(): Unit = {
@@ -408,6 +398,19 @@ private[spark] class ExecutorAllocationManager(
   private def tryInbox[A](block: SynchronousQueue[Message] => A): A = inbox match {
     case null => null.asInstanceOf[A]
     case i => block(i)
+  }
+
+  /**
+   * Reset the allocation manager to the initial state. Currently this will only be called in
+   * yarn-client mode when AM re-registers after a failure.
+   */
+  def reset(): Unit = synchronized {
+    initializing = true
+    numExecutorsTarget = initialNumExecutors
+    numExecutorsToAdd = 1
+
+    executorsPendingToRemove.clear()
+    removeTimes.clear()
   }
 
   /**
@@ -476,7 +479,8 @@ private[spark] class ExecutorAllocationManager(
   
       // Send a request to the backend to kill this executor
       if (!(testing || client.killExecutor(executorId))) {
-        logWarning(s"Unable to reach the cluster manager to kill executor $executorId!")
+        logWarning(s"Unable to reach the cluster manager to kill executor $executorId," +
+          s"or no executor eligible to kill!")
         return false
       }
       
