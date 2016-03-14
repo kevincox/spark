@@ -56,4 +56,5 @@ private[spark] trait SchedulerBackend {
    */
   def getDriverLogUrls: Option[Map[String, String]] = None
 
+  def isClusterPressure(): Boolean = false
 }

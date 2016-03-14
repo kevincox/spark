@@ -776,8 +776,6 @@ class ExecutorAllocationManagerSuite
     assert(maxNumExecutorsNeeded(manager) === 1)
   }
 
-<<<<<<< HEAD
-=======
   test("reset the state of allocation manager") {
     sc = createSparkContext()
     val manager = sc.executorAllocationManager.get
@@ -872,7 +870,6 @@ class ExecutorAllocationManagerSuite
     assert(idleExecutors(manager) === Map.empty)
   }
 
->>>>>>> 7588d38... Refactor ExecutorAllocationManager.
   private def createSparkContext(
       minExecutors: Int = 1,
       maxExecutors: Int = 5,

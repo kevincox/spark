@@ -50,6 +50,7 @@ import org.apache.hadoop.yarn.api.ApplicationConstants.Environment
 import org.apache.hadoop.yarn.api.protocolrecords._
 import org.apache.hadoop.yarn.api.records._
 import org.apache.hadoop.yarn.client.api.{YarnClient, YarnClientApplication}
+import org.apache.hadoop.yarn.event.ClusterPressureEventType;
 import org.apache.hadoop.yarn.conf.YarnConfiguration
 import org.apache.hadoop.yarn.exceptions.ApplicationNotFoundException
 import org.apache.hadoop.yarn.util.Records
@@ -70,14 +71,14 @@ private[spark] class Client(
   def this(clientArgs: ClientArguments, spConf: SparkConf) =
     this(clientArgs, SparkHadoopUtil.get.newConfiguration(spConf), spConf)
 
-  private val yarnClient = YarnClient.createYarnClient
+  private val yarnClient = YarnClient.createYarnClient(null)
   private val yarnConf = new YarnConfiguration(hadoopConf)
   private var credentials: Credentials = null
   private val amMemoryOverhead = args.amMemoryOverhead // MB
   private val executorMemoryOverhead = args.executorMemoryOverhead // MB
   private val distCacheMgr = new ClientDistributedCacheManager()
   private val isClusterMode = args.isClusterMode
-
+  
   private var loginFromKeytab = false
   private var principal: String = null
   private var keytab: String = null
@@ -153,6 +154,11 @@ private[spark] class Client(
         }
         throw e
     }
+  }
+  
+  def isClusterPressure(): Boolean = {
+    var status = yarnClient.getClusterPressureEventStatus()
+    status.getType() == ClusterPressureEventType.CLUSTER_PRESSURE
   }
 
   /**

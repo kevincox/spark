@@ -96,6 +96,8 @@ private[spark] object JsonProtocol {
         executorMetricsUpdateToJson(metricsUpdate)
       case blockUpdated: SparkListenerBlockUpdated =>
         throw new MatchError(blockUpdated)  // TODO(ekl) implement this
+      case clusterPressure: SparkListenerClusterPressure =>
+        clusterPressureToJson(clusterPressure)
     }
   }
 
@@ -237,6 +239,10 @@ private[spark] object JsonProtocol {
       ("Stage Attempt ID" -> stageAttemptId) ~
       ("Task Metrics" -> taskMetricsToJson(metrics))
     })
+  }
+  
+  def clusterPressureToJson(clusterPressure: SparkListenerClusterPressure): JValue = {
+    ("Event" -> Utils.getFormattedClassName(clusterPressure))
   }
 
   /** ------------------------------------------------------------------- *

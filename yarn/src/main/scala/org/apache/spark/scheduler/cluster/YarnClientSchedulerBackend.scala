@@ -199,4 +199,8 @@ private[spark] class YarnClientSchedulerBackend(
       super.applicationId
     }
   }
+  
+  override def isClusterPressure() = {
+    client.isClusterPressure() 
+  }
 }
