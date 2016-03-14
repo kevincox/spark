@@ -246,6 +246,7 @@ private[spark] class ExecutorAllocationManager(
     def onPleaseRelease(amt :Int): State = {
       var extra = math.max(0, numExecutorsTarget - fairNumExecutors)
       
+      println("ASKED TO RELEASE")
       logInfo("########################################")
       logInfo(s"Asked to release $amt executors, have $extra extra.")
       logInfo("########################################")
@@ -382,16 +383,6 @@ private[spark] class ExecutorAllocationManager(
   def start(): Unit = {
     listenerBus.addListener(listener)
     thread.start
-    
-    new Thread("demo-notification-thread") {
-      override def run(): Unit = {
-        Thread.sleep(30 * 1000)
-        println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
-        println("Sending pressure notification")
-        println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
-        inbox.put(PleaseRelease(4))
-      }
-    }.start
   }
 
   private def run(): Unit = {
@@ -742,6 +733,10 @@ private[spark] class ExecutorAllocationManager(
 
     override def onExecutorRemoved(executorRemoved: SparkListenerExecutorRemoved): Unit = {
       allocationManager.onExecutorRemoved(executorRemoved.executorId)
+    }
+    
+    override def onClusterPressure(pressure: SparkListenerClusterPressure): Unit = {
+      inbox.put(PleaseRelease(4))
     }
 
     /**

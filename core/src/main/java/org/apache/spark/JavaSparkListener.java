@@ -83,6 +83,9 @@ public class JavaSparkListener implements SparkListener {
   public void onBlockUpdated(SparkListenerBlockUpdated blockUpdated) { }
 
   @Override
+  public void onClusterPressure(SparkListenerClusterPressure clusterPressure) { }
+
+  @Override
   public void onOtherEvent(SparkListenerEvent event) { }
 
 }

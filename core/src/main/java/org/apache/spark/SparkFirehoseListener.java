@@ -119,6 +119,11 @@ public class SparkFirehoseListener implements SparkListener {
     }
 
     @Override
+    public void onClusterPressure(SparkListenerClusterPressure clusterPressure) {
+        onEvent(clusterPressure);
+    }
+
+    @Override
     public void onOtherEvent(SparkListenerEvent event) {
         onEvent(event);
     }

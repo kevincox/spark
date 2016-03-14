@@ -243,6 +243,8 @@ trait SparkListener {
    * Called when the driver receives a block update info.
    */
   def onBlockUpdated(blockUpdated: SparkListenerBlockUpdated) { }
+  
+  def onClusterPressure(pressure: SparkListenerClusterPressure) {  }
 
   /**
    * Called when other events like SQL-specific events are posted.

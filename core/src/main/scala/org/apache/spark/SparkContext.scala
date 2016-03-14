@@ -215,6 +215,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   private var _applicationAttemptId: Option[String] = None
   private var _eventLogger: Option[EventLoggingListener] = None
   private var _executorAllocationManager: Option[ExecutorAllocationManager] = None
+  private var _clusterPressureMonitor: ClusterPressureMonitor = _;
   private var _cleaner: Option[ContextCleaner] = None
   private var _listenerBusStarted: Boolean = false
   private var _jars: Seq[String] = _
@@ -338,7 +339,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     }
     override protected def initialValue(): Properties = new Properties()
   }
-
+  
   /* ------------------------------------------------------------------------------------- *
    | Initialization. This code initializes the context in a manner that is exception-safe. |
    | All internal fields holding state are initialized here, and any error prompts the     |
@@ -537,7 +538,7 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
         None
       }
     _executorAllocationManager.foreach(_.start())
-
+    
     _cleaner =
       if (_conf.getBoolean("spark.cleaner.referenceTracking", true)) {
         Some(new ContextCleaner(this))
@@ -549,6 +550,10 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     setupAndStartListenerBus()
     postEnvironmentUpdate()
     postApplicationStart()
+    
+    println("STARTING MONITOR")
+    _clusterPressureMonitor = new ClusterPressureMonitor(_schedulerBackend, listenerBus)
+    _clusterPressureMonitor.start
 
     // Post init
     _taskScheduler.postStartHook()
@@ -1666,6 +1671,9 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
     }
     Utils.tryLogNonFatalError {
       _executorAllocationManager.foreach(_.stop())
+    }
+    Utils.tryLogNonFatalError {
+      _clusterPressureMonitor.stop()
     }
     if (_listenerBusStarted) {
       Utils.tryLogNonFatalError {

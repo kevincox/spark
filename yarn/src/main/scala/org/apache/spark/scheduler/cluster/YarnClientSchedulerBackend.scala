@@ -191,4 +191,8 @@ private[spark] class YarnClientSchedulerBackend(
     logInfo("Stopped")
   }
 
+  override def isClusterPressure() = {
+    println("ASKING " + client.isClusterPressure())
+    client.isClusterPressure() 
+  }
 }
